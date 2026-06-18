@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Overlay Copa - Stream</title>
+    <style>
+        /* Estilos do Overlay que vai aparecer na Stream */
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: transparent; /* Fundo transparente para o OBS */
+            margin: 0;
+            padding: 20px;
+            color: white;
+        }
+
+        .scoreboard-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 50px;
+        }
+
+        .scoreboard {
+            background: rgba(15, 23, 42, 0.9); /* Fundo escuro semi-transparente */
+            border-bottom: 4px solid #facc15; /* Detalhe em dourado */
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            padding: 10px 30px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        .team {
+            font-size: 24px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            min-width: 100px;
+            text-align: center;
+        }
+
+        .score {
+            font-size: 36px;
+            background: #1e293b;
+            padding: 5px 15px;
+            border-radius: 4px;
+            margin: 0 15px;
+            color: #facc15;
+        }
+
+        .timer {
+            font-size: 28px;
+            margin-left: 25px;
+            padding-left: 25px;
+            border-left: 2px solid #475569;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        /* Painel de Controle (Fica invisível na Stream se cortado ou configurado) */
+        .control-panel {
+            background: #1e293b;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 500px;
+            margin: 0 auto;
+            border: 1px solid #475569;
+        }
+
+        .control-panel h3 { margin-top: 0; color: #facc15; }
+        .control-group { margin-bottom: 15px; display: flex; gap: 10px; align-items: center; }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        button:hover { background: #2563eb; }
+        button.btn-danger { background: #ef4444; }
+        button.btn-danger:hover { background: #dc2626; }
+        input {
+            background: #0f172a;
+            border: 1px solid #475569;
+            color: white;
+            padding: 6px;
+            border-radius: 4px;
+            width: 80px;
+        }
+
+        .timer-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .timer-controls input[type="number"] {
+            width: 52px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- O PLACAR (O que vai para a Stream) -->
+    <div class="scoreboard-container">
+        <div class="scoreboard" id="stream-overlay">
+            <span class="team" id="display-team1">TIM A</span>
+            <span class="score" id="display-score1">0</span>
+            <span class="vs">X</span>
+            <span class="score" id="display-score2">0</span>
+            <span class="team" id="display-team2">TIM B</span>
+            <span class="timer" id="display-time">00:00</span>
+        </div>
+    </div>
+
+    <!-- PAINEL DE CONTROLE (Você usa para gerenciar) -->
+    <div class="control-panel" id="admin-panel">
+        <h3>Painel de Controle do Placar</h3>
+        
+        <div class="control-group">
+            <label>Times:</label>
+            <input type="text" id="input-team1" value="BRA" style="width: 60px;">
+            <input type="text" id="input-team2" value="ARG" style="width: 60px;">
+            <button onclick="updateTeams()">Definir Times</button>
+        </div>
+
+        <div class="control-group">
+            <label>Gols Mandante:</label>
+            <button onclick="changeScore(1, -1)">-</button>
+            <button onclick="changeScore(1, 1)">+</button>
+            <label style="margin-left: 20px;">Gols Visitante:</label>
+            <button onclick="changeScore(2, -1)">-</button>
+            <button onclick="changeScore(2, 1)">+</button>
+        </div>
+
+        <div class="control-group">
+            <label>Cronômetro:</label>
+            <div class="timer-controls">
+                <button onclick="toggleTimer()" id="btn-start" style="background: #22c55e;">Iniciar</button>
+                <button onclick="resetTimer()" class="btn-danger">Zerar</button>
+                <button onclick="setSecondHalf()">45:00</button>
+                <button onclick="addTime(30)">+30s</button>
+                <button onclick="addTime(-30)">-30s</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Tempo:</label>
+            <div class="timer-controls">
+                <input type="number" id="input-minutes" min="0" max="90" value="0" oninput="syncTimerInputs()">
+                <span>:</span>
+                <input type="number" id="input-seconds" min="0" max="59" value="0" oninput="syncTimerInputs()">
+                <button onclick="setTimerFromInputs()">Definir tempo</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Lógica do Sistema
+        let timeInSeconds = 0;
+        let timerInterval = null;
+        let score1 = 0;
+        let score2 = 0;
+
+        function updateTeams() {
+            document.getElementById('display-team1').innerText = document.getElementById('input-team1').value;
+            document.getElementById('display-team2').innerText = document.getElementById('input-team2').value;
+        }
+
+        function changeScore(team, value) {
+            if (team === 1) {
+                score1 = Math.max(0, score1 + value);
+                document.getElementById('display-score1').innerText = score1;
+            } else {
+                score2 = Math.max(0, score2 + value);
+                document.getElementById('display-score2').innerText = score2;
+            }
+        }
+
+        function formatTime(seconds) {
+            let mins = Math.floor(seconds / 60);
+            let secs = seconds % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function updateTimerDisplay() {
+            document.getElementById('display-time').innerText = formatTime(timeInSeconds);
+        }
+
+        function syncTimerInputs() {
+            const mins = Math.max(0, parseInt(document.getElementById('input-minutes').value || '0', 10));
+            const secs = Math.max(0, Math.min(59, parseInt(document.getElementById('input-seconds').value || '0', 10)));
+            document.getElementById('input-minutes').value = mins;
+            document.getElementById('input-seconds').value = secs;
+        }
+
+        function setTimerFromInputs() {
+            syncTimerInputs();
+            const mins = parseInt(document.getElementById('input-minutes').value || '0', 10);
+            const secs = parseInt(document.getElementById('input-seconds').value || '0', 10);
+            timeInSeconds = mins * 60 + secs;
+            updateTimerDisplay();
+        }
+
+        function addTime(deltaSeconds) {
+            timeInSeconds = Math.max(0, timeInSeconds + deltaSeconds);
+            updateTimerDisplay();
+            document.getElementById('input-minutes').value = Math.floor(timeInSeconds / 60);
+            document.getElementById('input-seconds').value = timeInSeconds % 60;
+        }
+
+        function toggleTimer() {
+            const btn = document.getElementById('btn-start');
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                btn.innerText = "Iniciar";
+                btn.style.background = "#22c55e";
+            } else {
+                btn.innerText = "Pausar";
+                btn.style.background = "#eab308";
+                timerInterval = setInterval(() => {
+                    timeInSeconds++;
+                    updateTimerDisplay();
+                }, 1000);
+            }
+        }
+
+        function resetTimer() {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            timeInSeconds = 0;
+            updateTimerDisplay();
+            const btn = document.getElementById('btn-start');
+            btn.innerText = "Iniciar";
+            btn.style.background = "#22c55e";
+        }
+
+        function setSecondHalf() {
+            timeInSeconds = 45 * 60;
+            updateTimerDisplay();
+            document.getElementById('input-minutes').value = 45;
+            document.getElementById('input-seconds').value = 0;
+        }
+
+        // Inicializa nomes padrões
+        updateTeams();
+    </script>
+</body>
+</html>
